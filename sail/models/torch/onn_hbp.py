@@ -15,7 +15,6 @@ class _ONNHBPModel(nn.Module):
         hidden_units (int): Number of hidden units
         n_hidden_layers (int): Number of hidden layers
         dropout (float): Dropout
-
     """
 
     def __init__(self,
@@ -259,25 +258,6 @@ class ONNHBP_Classifier(NeuralNetClassifier):
             'loss': val_loss,
             'y_pred': y_pred,
         }
-
-    # NOTE: this works, but completely 'avoids' using the normal pipelining
-    #
-    # def partial_fit(self, X, y=None, classes=None, **fit_params):
-    #     # Initialize the self.module_ if not already
-    #     if not self.initialized_:
-    #         self.initialize()
-    #
-    #     # Notify the 'on_train_begin' hook
-    #     self.notify('on_train_begin', X=X, y=y)
-    #
-    #     super().partial_fit(X, y, classes, **fit_params)
-    #     try:
-    #         self.module_.partial_fit(X, y)
-    #     except KeyboardInterrupt:
-    #         pass
-    #
-    #     # Notify the 'on_train_end' hook
-    #     self.notify('on_train_end', X=X, y=y)
 
 if __name__ == '__main__':
 
