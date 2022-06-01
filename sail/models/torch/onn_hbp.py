@@ -74,23 +74,39 @@ class _ONNHBPModel(nn.Module):
         self.hidden_layers[l].weight.data -= self.learning_rate * w
         self.hidden_layers[l].bias.data -= self.learning_rate * b
 
+    def calculate_CE_loss(self, X, Y):
+        """
+        Helper method to calculate the Cross Entropy (CE) loss given ground-truth X and Y
+        Args:
+            X: ground-truth input
+            Y: ground-truth labels/classes
+
+        Returns: mean_loss:
+        - mean CE loss across all layers
+        - losses_per_layer: list of CE losses per layer
+        """
+        predictions_per_layer = self.forward_(X)
+
+        losses_per_layer = []
+        for out in predictions_per_layer:
+            criterion = nn.CrossEntropyLoss().to(self.device)
+            # loss = criterion(out.view(batch_size, n_classes), Y.view(batch_size).long())
+            loss = criterion(out, Y.long())
+            losses_per_layer.append(loss)
+
+        mean_loss = torch.stack(losses_per_layer).mean().detach()
+        return mean_loss, losses_per_layer
+
+
     def update_weights(self, X, Y):
         # batch_size = Y.shape
         # n_classes = self.output_units
 
         if (not isinstance(Y, torch.Tensor)):
             Y = torch.from_numpy(Y).to(self.device)
-
-        predictions_per_layer = self.forward_(X)
         total_predictions_before_update = self.predict_(X)
 
-        losses_per_layer = []
-
-        for out in predictions_per_layer:
-            criterion = nn.CrossEntropyLoss().to(self.device)
-            # loss = criterion(out.view(batch_size, n_classes), Y.view(batch_size).long())
-            loss = criterion(out, Y.long())
-            losses_per_layer.append(loss)
+        mean_loss, losses_per_layer = self.calculate_CE_loss(X, Y)
 
         w = [0] * self.n_hidden_layers
         b = [0] * self.n_hidden_layers
@@ -117,7 +133,7 @@ class _ONNHBPModel(nn.Module):
         self.alpha = Parameter(self.alpha / z_t, requires_grad=False).to(self.device)
 
         # Return the averaged loss across layers (maybe 'sum' could be more appropriate?)
-        return total_predictions_before_update, torch.stack(losses_per_layer).mean().detach()
+        return total_predictions_before_update, mean_loss
 
         # NOTE: missing "show_loss"
 
@@ -209,7 +225,7 @@ class ONNHBP_Classifier(NeuralNetClassifier):
             max_epochs=1,
         )
 
-        self.train_split = None # Force disable splitting, might need to turn off later
+        # self.train_split = None # Force disable splitting, might need to turn off later
 
     # Attempted override for net.py:965
     def train_step(self, batch, **fit_params):
@@ -252,6 +268,7 @@ if __name__ == '__main__':
         output_units=n_classes,
         hidden_units=10,
         n_hidden_layers=7,
+        learning_rate=0.1,
     )
 
     """
@@ -286,7 +303,6 @@ if __name__ == '__main__':
     for i in range(epochs):
         classifier.partial_fit(X_train, y_train)
 
-
-    # train_losses = classifier.history[:, 'train_loss']
-    # assert train_losses[0] > train_losses[-1]
-    # valid_acc = classifier.history[-1, 'valid_acc']
+    train_losses = classifier.history[:, 'train_loss']
+    assert train_losses[0] > train_losses[-1]
+    valid_acc = classifier.history[-1, 'valid_acc']
