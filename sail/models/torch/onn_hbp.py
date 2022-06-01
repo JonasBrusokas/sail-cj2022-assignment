@@ -137,15 +137,26 @@ class _ONNHBPModel(nn.Module):
 
         # NOTE: missing "show_loss"
 
-        # TODO: is X really torch.tensor type?
     def forward(self, X: torch.Tensor):
         scores = self.predict_(X_data=X)
-        if (scores.isnan().any()):
-            print("I HAVE NANS!")
         return scores
 
-    def forward_(self, X: torch.Tensor):
 
+    # NOTE: we do not have the 'show_loss' here
+    def partial_fit_(self, X_data, Y_data):
+        # self.validate_input_X(X_data)
+        # self.validate_input_Y(Y_data)
+        return self.update_weights(X_data, Y_data)
+
+    def partial_fit(self, X_data, Y_data):
+        return self.partial_fit_(X_data, Y_data)
+
+    def forward_(self, X: torch.Tensor):
+        """
+        Args:
+            X: input data
+        Returns: [layers, batch, classes] tensor with predictions from each layer
+        """
         if (not isinstance(X, torch.Tensor)):
             X = torch.from_numpy(X)
         X = X.float().to(self.device)
@@ -162,17 +173,12 @@ class _ONNHBPModel(nn.Module):
         pred_per_layer = torch.stack(output_class)
         return pred_per_layer
 
-    # NOTE: we do not have the 'show_loss' here
-    def partial_fit_(self, X_data, Y_data):
-        # self.validate_input_X(X_data)
-        # self.validate_input_Y(Y_data)
-        return self.update_weights(X_data, Y_data)
-
-    def partial_fit(self, X_data, Y_data):
-        return self.partial_fit_(X_data, Y_data)
-
-    # NOTE: this is basically CPU bound + output is numpy
     def predict_(self, X_data):
+        """
+        Args:
+            X_data: input data
+        Returns: [batch, class_count] tensor with scores for each class
+        """
         scores = torch.sum(
             torch.mul(
                 self.alpha.view(self.n_hidden_layers, 1).repeat(1, len(X_data))
@@ -185,6 +191,11 @@ class _ONNHBPModel(nn.Module):
             # .cpu().numpy()
 
     def predict(self, X_data):
+        """
+        Args:
+            X_data: input data
+        Returns: [batch] tensor with argmax'ed predictions (MAP) for each input item
+        """
         scores = self.predict_(X_data)
         return torch.argmax(scores, dim=1)
 
