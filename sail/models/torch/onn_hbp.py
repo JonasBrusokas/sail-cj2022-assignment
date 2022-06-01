@@ -66,8 +66,8 @@ class _ONNHBPModel(nn.Module):
             self.hidden_layers[i].weight.grad.data.fill_(0)
             self.hidden_layers[i].bias.grad.data.fill_(0)
 
-    def __update_alpha(self, losses_per_layer, l):  #
-        self.alpha[l] *= torch.pow(self.beta, losses_per_layer)
+    def __update_alpha(self, losses_per_layer, l:int):  #
+        self.alpha[l] *= torch.pow(self.beta, losses_per_layer[l])
         self.alpha[l] = torch.max(self.alpha[l], self.smoothing / self.n_hidden_layers)
 
     def __update_hidden_layer_weight(self, w, b, l):  #
@@ -75,18 +75,21 @@ class _ONNHBPModel(nn.Module):
         self.hidden_layers[l].bias.data -= self.learning_rate * b
 
     def update_weights(self, X, Y):
+        # batch_size = Y.shape
+        # n_classes = self.output_units
 
-        batch_size, n_classes = Y.shape
+        if (not isinstance(Y, torch.Tensor)):
+            Y = torch.from_numpy(Y).to(self.device)
 
-        Y = torch.from_numpy(Y).to(self.device)
-
-        predictions_per_layer = self.forward(X)
+        predictions_per_layer = self.forward_(X)
+        total_predictions_before_update = self.predict_(X)
 
         losses_per_layer = []
 
         for out in predictions_per_layer:
             criterion = nn.CrossEntropyLoss().to(self.device)
-            loss = criterion(out.view(batch_size, n_classes), Y.view(batch_size).long())
+            # loss = criterion(out.view(batch_size, n_classes), Y.view(batch_size).long())
+            loss = criterion(out, Y.long())
             losses_per_layer.append(loss)
 
         w = [0] * self.n_hidden_layers
@@ -108,21 +111,28 @@ class _ONNHBPModel(nn.Module):
                 self.zero_grad()  # TODO: test torch.zero_grad()
 
             [self.__update_hidden_layer_weight(w[i], b[i], i) for i in range(self.n_hidden_layers)]
-            [self.__update_alpha(i, losses_per_layer[i]) for i in range(self.n_hidden_layers)]
+            [self.__update_alpha(losses_per_layer, i) for i in range(self.n_hidden_layers)]
 
         z_t = torch.sum(self.alpha)
         self.alpha = Parameter(self.alpha / z_t, requires_grad=False).to(self.device)
+
+        # Return the averaged loss across layers (maybe 'sum' could be more appropriate?)
+        return total_predictions_before_update, torch.stack(losses_per_layer).mean().detach()
 
         # NOTE: missing "show_loss"
 
         # TODO: is X really torch.tensor type?
     def forward(self, X: torch.Tensor):
         scores = self.predict_(X_data=X)
+        if (scores.isnan().any()):
+            print("I HAVE NANS!")
         return scores
 
     def forward_(self, X: torch.Tensor):
 
-        # X = torch.from_numpy(X).float().to(self.device)
+        if (not isinstance(X, torch.Tensor)):
+            X = torch.from_numpy(X)
+        X = X.float().to(self.device)
         x = F.relu(self.hidden_layers[0](X))
 
         hidden_connections = [x]
@@ -138,12 +148,12 @@ class _ONNHBPModel(nn.Module):
 
     # NOTE: we do not have the 'show_loss' here
     def partial_fit_(self, X_data, Y_data):
-        self.validate_input_X(X_data)
-        self.validate_input_Y(Y_data)
-        self.update_weights(X_data, Y_data)
+        # self.validate_input_X(X_data)
+        # self.validate_input_Y(Y_data)
+        return self.update_weights(X_data, Y_data)
 
     def partial_fit(self, X_data, Y_data):
-        self.partial_fit_(X_data, Y_data)
+        return self.partial_fit_(X_data, Y_data)
 
     # NOTE: this is basically CPU bound + output is numpy
     def predict_(self, X_data):
@@ -198,7 +208,38 @@ class ONNHBP_Classifier(NeuralNetClassifier):
             module__smoothing=smoothing,
             max_epochs=1,
         )
+
         self.train_split = None # Force disable splitting, might need to turn off later
+
+    # Attempted override for net.py:965
+    def train_step(self, batch, **fit_params):
+        step_accumulator = self.get_train_step_accumulator()
+        y_pred, loss = self.module_.partial_fit(batch[0], batch[1])
+        step = {
+            "y_pred": y_pred,
+            "loss": loss
+        }
+        step_accumulator.store_step(step)
+        return step_accumulator.get_step()
+
+    # NOTE: this works, but completely 'avoids' using the normal pipelining
+    #
+    # def partial_fit(self, X, y=None, classes=None, **fit_params):
+    #     # Initialize the self.module_ if not already
+    #     if not self.initialized_:
+    #         self.initialize()
+    #
+    #     # Notify the 'on_train_begin' hook
+    #     self.notify('on_train_begin', X=X, y=y)
+    #
+    #     super().partial_fit(X, y, classes, **fit_params)
+    #     try:
+    #         self.module_.partial_fit(X, y)
+    #     except KeyboardInterrupt:
+    #         pass
+    #
+    #     # Notify the 'on_train_end' hook
+    #     self.notify('on_train_end', X=X, y=y)
 
 if __name__ == '__main__':
 
@@ -246,6 +287,6 @@ if __name__ == '__main__':
         classifier.partial_fit(X_train, y_train)
 
 
-    train_losses = classifier.history[:, 'train_loss']
+    # train_losses = classifier.history[:, 'train_loss']
     # assert train_losses[0] > train_losses[-1]
     # valid_acc = classifier.history[-1, 'valid_acc']
