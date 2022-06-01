@@ -76,7 +76,7 @@ class _ONNHBPModel(nn.Module):
 
     def update_weights(self, X, Y):
 
-        batch_size, n_classes = X.shape  # TODO: is this Y shape perhaps?
+        batch_size, n_classes = Y.shape
 
         Y = torch.from_numpy(Y).to(self.device)
 
@@ -117,6 +117,10 @@ class _ONNHBPModel(nn.Module):
 
         # TODO: is X really torch.tensor type?
     def forward(self, X: torch.Tensor):
+        scores = self.predict_(X_data=X)
+        return scores
+
+    def forward_(self, X: torch.Tensor):
 
         # X = torch.from_numpy(X).float().to(self.device)
         x = F.relu(self.hidden_layers[0](X))
@@ -143,19 +147,20 @@ class _ONNHBPModel(nn.Module):
 
     # NOTE: this is basically CPU bound + output is numpy
     def predict_(self, X_data):
-        self.validate_input_X(X_data)
-        return torch.argmax(
-            torch.sum(
-                torch.mul(
-                    self.alpha.view(self.n_hidden_layers, 1).repeat(1, len(X_data))
-                        .view(self.n_hidden_layers, len(X_data), 1)
-                    , self.forward(X_data))
-                , 0)
-            , dim=1).cpu().numpy()
+        scores = torch.sum(
+            torch.mul(
+                self.alpha.view(self.n_hidden_layers, 1).repeat(1, len(X_data))
+                    .view(self.n_hidden_layers, len(X_data), 1)
+                , self.forward_(X_data))
+            , 0)
+        # self.validate_input_X(X_data)
+        return scores
+
+            # .cpu().numpy()
 
     def predict(self, X_data):
-        pred = self.predict_(X_data)
-        return pred
+        scores = self.predict_(X_data)
+        return torch.argmax(scores, dim=1)
 
 class ONNHBP_Classifier(NeuralNetClassifier):
     def __init__(self,
@@ -191,7 +196,9 @@ class ONNHBP_Classifier(NeuralNetClassifier):
             module__beta=beta,
             module__learning_rate=learning_rate,
             module__smoothing=smoothing,
+            max_epochs=1,
         )
+        self.train_split = None # Force disable splitting, might need to turn off later
 
 if __name__ == '__main__':
 
@@ -229,11 +236,16 @@ if __name__ == '__main__':
         X, y = X.astype(np.float32), y.astype(np.int64)
         return X, y
 
-    X, y = classification_data()
+    X_train, y_train = classification_data()
 
-    for i in range(0, 10):
-        classifier.partial_fit(X, y)
+    # for i in range(len(X_train)):
+    #     classifier.partial_fit(np.asarray([X_train[i, :]]), np.asarray([y_train[i]]))
+
+    epochs = 5
+    for i in range(epochs):
+        classifier.partial_fit(X_train, y_train)
+
 
     train_losses = classifier.history[:, 'train_loss']
-    assert train_losses[0] > train_losses[-1]
-    valid_acc = classifier.history[-1, 'valid_acc']
+    # assert train_losses[0] > train_losses[-1]
+    # valid_acc = classifier.history[-1, 'valid_acc']
