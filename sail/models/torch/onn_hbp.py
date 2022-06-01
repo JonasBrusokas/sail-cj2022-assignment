@@ -81,9 +81,9 @@ class _ONNHBPModel(nn.Module):
             X: ground-truth input
             Y: ground-truth labels/classes
 
-        Returns: mean_loss:
-        - mean CE loss across all layers
-        - losses_per_layer: list of CE losses per layer
+        Returns:
+            mean_loss: mean CE loss across all layers
+            losses_per_layer: list of CE losses per layer
         """
         predictions_per_layer = self.forward_(X)
 
@@ -238,7 +238,9 @@ class ONNHBP_Classifier(NeuralNetClassifier):
 
         # self.train_split = None # Force disable splitting, might need to turn off later
 
-    # Attempted override for net.py:965
+    # OVERRIDES net.py:965
+    # This enables training the model EXACTLY as specified in the paper
+    # and avoiding all of the defaults imposed by 'skorch'
     def train_step(self, batch, **fit_params):
         step_accumulator = self.get_train_step_accumulator()
         y_pred, loss = self.module_.partial_fit(batch[0], batch[1])
@@ -248,6 +250,15 @@ class ONNHBP_Classifier(NeuralNetClassifier):
         }
         step_accumulator.store_step(step)
         return step_accumulator.get_step()
+
+    # This enables logging "valid_loss"
+    def validation_step(self, batch, **fit_params):
+        val_loss, _ = self.module_.calculate_CE_loss(batch[0], batch[1])
+        y_pred = self.module_.predict_(batch[0])
+        return {
+            'loss': val_loss,
+            'y_pred': y_pred,
+        }
 
     # NOTE: this works, but completely 'avoids' using the normal pipelining
     #
