@@ -96,7 +96,6 @@ class _ONNHBPModel(nn.Module):
         mean_loss = torch.stack(losses_per_layer).mean().detach()
         return mean_loss, losses_per_layer
 
-
     def update_weights(self, X, Y):
         # batch_size = Y.shape
         # n_classes = self.output_units
@@ -139,7 +138,6 @@ class _ONNHBPModel(nn.Module):
     def forward(self, X: torch.Tensor):
         scores = self.predict_(X_data=X)
         return scores
-
 
     # NOTE: we do not have the 'show_loss' here
     def partial_fit_(self, X_data, Y_data):
@@ -185,7 +183,7 @@ class _ONNHBPModel(nn.Module):
                 , self.forward_(X_data))
             , 0)
         # self.validate_input_X(X_data)
-        return scores
+        return scores.softmax(dim=1)
 
             # .cpu().numpy()
 
@@ -298,6 +296,7 @@ if __name__ == '__main__':
 
     X_train, y_train = classification_data()
 
+    # TODO: possibly fit does not reset model params
     classifier.fit(X_train, y_train)
     train_losses_after_fit = classifier.history[:, 'train_loss']
     valid_acc_after_fit = classifier.history[-1, 'valid_acc']
