@@ -5,6 +5,7 @@ from skorch import NeuralNetClassifier
 from torch.nn.parameter import Parameter
 import torch.nn.functional as F
 
+
 class _ONNHBPModel(nn.Module):
     """Hedge Backpropagation FFN model.
     Online Deep Learning: Learning Deep Neural Networks on the Fly https://arxiv.org/abs/1711.03705
@@ -45,20 +46,20 @@ class _ONNHBPModel(nn.Module):
         self.loss_array = []
 
         self.hidden_layers = nn.ModuleList(
-            [nn.Linear(input_units, n_hidden_layers)] +
-            [nn.Linear(n_hidden_layers, n_hidden_layers) for _ in range(self.n_hidden_layers - 1)])  #
+            [nn.Linear(input_units, hidden_units)] +
+            [nn.Linear(hidden_units, hidden_units) for _ in range(self.n_hidden_layers - 1)])  #
 
-        self.output_layers = nn.ModuleList([nn.Linear(n_hidden_layers, output_units) for i in range(
+        self.output_layers = nn.ModuleList([nn.Linear(hidden_units, output_units) for _ in range(
             self.n_hidden_layers)])  #
 
         self.alpha = Parameter(torch.Tensor(self.n_hidden_layers).fill_(1 / (self.n_hidden_layers + 1)),
                                requires_grad=False)  #
 
         self.do = nn.Dropout(p=dropout)
-        self.actfn = nn.Tanh()
+        self.actfn = nn.ReLU()
         self.dtype = torch.float  # ?
 
-    def zero_grad(self):  #
+    def zero_grad_(self):  #
         for i in range(self.n_hidden_layers):
             self.output_layers[i].weight.grad.data.fill_(0)
             self.output_layers[i].bias.grad.data.fill_(0)
@@ -99,8 +100,7 @@ class _ONNHBPModel(nn.Module):
     def update_weights(self, X, Y):
         # batch_size = Y.shape
         # n_classes = self.output_units
-
-        if (not isinstance(Y, torch.Tensor)):
+        if not isinstance(Y, torch.Tensor):
             Y = torch.from_numpy(Y).to(self.device)
         total_predictions_before_update = self.predict_(X)
 
@@ -110,7 +110,6 @@ class _ONNHBPModel(nn.Module):
         b = [0] * self.n_hidden_layers
 
         with torch.no_grad():
-
             for i in range(self.n_hidden_layers):
                 losses_per_layer[i].backward(retain_graph=True)
                 self.output_layers[i].weight.data -= self.learning_rate * self.alpha[i] * self.output_layers[
@@ -122,7 +121,7 @@ class _ONNHBPModel(nn.Module):
                     w[j] += self.alpha[i] * self.hidden_layers[j].weight.grad.data
                     b[j] += self.alpha[i] * self.hidden_layers[j].bias.grad.data
 
-                self.zero_grad()  # TODO: test torch.zero_grad()
+                self.zero_grad_()  # TODO: test torch.zero_grad()
 
             [self.__update_hidden_layer_weight(w[i], b[i], i) for i in range(self.n_hidden_layers)]
             [self.__update_alpha(losses_per_layer, i) for i in range(self.n_hidden_layers)]
@@ -134,7 +133,6 @@ class _ONNHBPModel(nn.Module):
         return total_predictions_before_update, mean_loss
 
         # NOTE: missing "show_loss"
-
     def forward(self, X: torch.Tensor):
         scores = self.predict_(X_data=X)
         return scores
@@ -154,18 +152,19 @@ class _ONNHBPModel(nn.Module):
             X: input data
         Returns: [layers, batch, classes] tensor with predictions from each layer
         """
-        if (not isinstance(X, torch.Tensor)):
+        if not isinstance(X, torch.Tensor):
             X = torch.from_numpy(X)
         X = X.float().to(self.device)
         x = F.relu(self.hidden_layers[0](X))
 
         hidden_connections = [x]
-        for i in range (1, self.n_hidden_layers):
-            hidden_connections += [
-                F.relu(self.hidden_layers[i](hidden_connections[i - 1]))
-            ]
 
-        output_class = [self.output_layers[i](hidden_connections[i]) for i in range(self.n_hidden_layers)]
+        for i in range(1, self.n_hidden_layers):
+            hidden_connections.append(F.relu(self.hidden_layers[i](hidden_connections[i - 1])))
+
+        output_class = []
+        for i in range(self.n_hidden_layers):
+            output_class.append(self.output_layers[i](hidden_connections[i]))
 
         pred_per_layer = torch.stack(output_class)
         return pred_per_layer
@@ -185,8 +184,6 @@ class _ONNHBPModel(nn.Module):
         # self.validate_input_X(X_data)
         return scores.softmax(dim=1)
 
-            # .cpu().numpy()
-
     def predict(self, X_data):
         """
         Args:
@@ -195,6 +192,7 @@ class _ONNHBPModel(nn.Module):
         """
         scores = self.predict_(X_data)
         return torch.argmax(scores, dim=1)
+
 
 class ONNHBP_Classifier(NeuralNetClassifier):
     def __init__(self,
@@ -257,7 +255,8 @@ class ONNHBP_Classifier(NeuralNetClassifier):
             'y_pred': y_pred,
         }
 
-if __name__ == '__main__':
+
+if __name__ == '__maisn__':
 
     n_data_points = 40
     n_features = 15
@@ -308,3 +307,47 @@ if __name__ == '__main__':
     train_losses = classifier.history[:, 'train_loss']
     assert train_losses[0] > train_losses[-1]
     valid_acc = classifier.history[-1, 'valid_acc']
+
+
+if __name__ == '__main__':
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.datasets import load_iris
+    import numpy as np
+
+    iris = load_iris()
+    X = iris['data']
+    y = iris['target']
+    names = iris['target_names']
+    feature_names = iris['feature_names']
+
+    # Scale data to have mean 0 and variance 1
+    # which is importance for convergence of the neural network
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Split the data set into training and testing
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_scaled, y, test_size=0.2, random_state=2)
+
+    n_features = X_train.shape[1]
+    n_classes = np.unique(y_test).shape[0]
+    ffn_hidden_units = 50
+    n_hidden_layers = 3
+
+    model_skorch = ONNHBP_Classifier(input_units=n_features,
+                                     output_units=n_classes,
+                                     hidden_units=ffn_hidden_units,
+                                     n_hidden_layers=n_hidden_layers)
+
+    partial_fit = None
+
+    for i in range(0, 25):
+        partial_fit = model_skorch.partial_fit(X_train, y_train)
+
+    print(partial_fit.score(X_test, y_test))
+
+    predict = model_skorch.predict(X_test)
+
+    print(predict)
+    print(y_test)
