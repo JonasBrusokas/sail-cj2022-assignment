@@ -3,21 +3,20 @@
 Based on: https://github.com/skorch-dev/skorch/blob/master/skorch/tests/test_classifier.py
 """
 
-
 import numpy as np
 import pytest
-import torch
 
 
 class TestONN:
     @pytest.fixture
     def classifier(self, classification_data):
-        from sail.models.torch.onn_hbp import ONNHBP_Classifier
-        return ONNHBP_Classifier(input_units=10,
-                                 output_units=2,
-                                 hidden_units=16,
-                                 n_hidden_layers=2,
-                                 learning_rate=0.1)
+        from sail.models.torch.onn_hbp import ONNHBPClassifier
+        return ONNHBPClassifier(input_units=10,
+                                output_units=2,
+                                hidden_units=16,
+                                n_hidden_layers=2,
+                                learning_rate=0.1)
+
     @pytest.fixture
     def classification_data(self):
         from sklearn.datasets import make_classification

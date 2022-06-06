@@ -7,15 +7,22 @@ import torch.nn.functional as F
 
 
 class _ONNHBPModel(nn.Module):
-    """Hedge Backpropagation FFN model.
+    """Online Neural Network with Hedge BackPropagation.
     Online Deep Learning: Learning Deep Neural Networks on the Fly https://arxiv.org/abs/1711.03705
 
-    Args:
-        input_units (int): Number of input units
-        output_units (int): Number of output units
-        hidden_units (int): Number of hidden units
-        n_hidden_layers (int): Number of hidden layers
-        dropout (float): Dropout
+    Paper https://arxiv.org/abs/1711.03705
+    Original code in Theano https://github.com/LIBOL/ODL
+    Pytorch implementation https://github.com/alison-carrera/onn
+
+        Args:
+            input_units: dimensionality of input
+            output_units: number of classification classes
+            hidden_units: number of hidden units in a single layer
+            n_hidden_layers: number of layers in the network
+            dropout: dropout coefficient
+            beta: beta coefficient (b)
+            learning_rate: learning rate for training
+            smoothing: smoothing coefficient (s)
     """
 
     def __init__(self,
@@ -27,7 +34,8 @@ class _ONNHBPModel(nn.Module):
                  beta: float = 0.99,
                  learning_rate: float = 0.01,
                  smoothing: float = 0.2,
-                 # batch_size: int = 32
+                 activation: str = 'ReLU',
+                 device: str = 'cpu'
                  ):
         super(_ONNHBPModel, self).__init__()
 
@@ -37,7 +45,7 @@ class _ONNHBPModel(nn.Module):
         self.n_hidden_layers = n_hidden_layers
         # self.batch_size = batch_size
 
-        self.device = torch.device('cpu')
+        self.device = torch.device(device)
 
         self.beta = Parameter(torch.tensor(beta), requires_grad=False).to(self.device)
         self.learning_rate = Parameter(torch.tensor(learning_rate), requires_grad=False).to(self.device)
@@ -56,7 +64,13 @@ class _ONNHBPModel(nn.Module):
                                requires_grad=False)  #
 
         self.do = nn.Dropout(p=dropout)
-        self.actfn = nn.ReLU()
+
+        try:
+            self.actfn = getattr(nn, activation)()
+        except AttributeError:
+            print('Invalid activation function: choose ReLu by default')
+            self.actfn = nn.ReLU
+
         self.dtype = torch.float  # ?
 
     def zero_grad_(self):  #
@@ -66,7 +80,7 @@ class _ONNHBPModel(nn.Module):
             self.hidden_layers[i].weight.grad.data.fill_(0)
             self.hidden_layers[i].bias.grad.data.fill_(0)
 
-    def __update_alpha(self, losses_per_layer, l:int):  #
+    def __update_alpha(self, losses_per_layer, l: int):  #
         self.alpha[l] *= torch.pow(self.beta, losses_per_layer[l])
         self.alpha[l] = torch.max(self.alpha[l], self.smoothing / self.n_hidden_layers)
 
@@ -133,6 +147,7 @@ class _ONNHBPModel(nn.Module):
         return total_predictions_before_update, mean_loss
 
         # NOTE: missing "show_loss"
+
     def forward(self, X: torch.Tensor):
         scores = self.predict_(X_data=X)
         return scores
@@ -181,7 +196,6 @@ class _ONNHBPModel(nn.Module):
                     .view(self.n_hidden_layers, len(X_data), 1)
                 , self.forward_(X_data))
             , 0)
-        # self.validate_input_X(X_data)
         return scores.softmax(dim=1)
 
     def predict(self, X_data):
@@ -194,7 +208,7 @@ class _ONNHBPModel(nn.Module):
         return torch.argmax(scores, dim=1)
 
 
-class ONNHBP_Classifier(NeuralNetClassifier):
+class ONNHBPClassifier(NeuralNetClassifier):
     def __init__(self,
                  # in_channels, input_size, lstm_layers, classes,
                  input_units: int,
@@ -205,9 +219,16 @@ class ONNHBP_Classifier(NeuralNetClassifier):
                  beta: float = 0.99,
                  learning_rate: float = 0.01,
                  smoothing: float = 0.2,
+                 activation: str = 'ReLU',
+                 **kwargs
                  ):
         """
-        Online Neural Network trained with Hedge Backpropagation.
+        Online Neural Network trained with Hedge BackPropagation Classifier.
+
+        Paper https://arxiv.org/abs/1711.03705
+        Original code in Theano https://github.com/LIBOL/ODL
+        Pytorch implementation https://github.com/alison-carrera/onn
+
         Args:
             input_units: dimensionality of input
             output_units: number of classification classes
@@ -217,8 +238,9 @@ class ONNHBP_Classifier(NeuralNetClassifier):
             beta: beta coefficient (b)
             learning_rate: learning rate for training
             smoothing: smoothing coefficient (s)
+            kwargs: NeuralNetClassifier parameters
         """
-        super(ONNHBP_Classifier, self).__init__(
+        super(ONNHBPClassifier, self).__init__(
             module=_ONNHBPModel,
             module__input_units=input_units,
             module__output_units=output_units,
@@ -228,7 +250,9 @@ class ONNHBP_Classifier(NeuralNetClassifier):
             module__beta=beta,
             module__learning_rate=learning_rate,
             module__smoothing=smoothing,
+            module__activation=activation,
             max_epochs=1,
+            **kwargs
         )
 
         # self.train_split = None # Force disable splitting, might need to turn off later
@@ -256,98 +280,37 @@ class ONNHBP_Classifier(NeuralNetClassifier):
         }
 
 
-if __name__ == '__maisn__':
-
-    n_data_points = 40
-    n_features = 15
-    n_classes = 5
-
-    classifier = ONNHBP_Classifier(
-        input_units=n_features,
-        output_units=n_classes,
-        hidden_units=10,
-        n_hidden_layers=7,
-        learning_rate=0.1,
-    )
-
-    """
-    #%%
-        onn_network = ONN(features_size=10, max_num_hidden_layers=5, qtd_neuron_per_hidden_layer=40, n_classes=10)
-        ##Creating Fake Classification Dataset
-        X, Y = make_classification(n_samples=50000, n_features=10, n_informative=4, n_redundant=0, n_classes=10,
-                                   n_clusters_per_class=1, class_sep=3)
-        X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.3, random_state=42, shuffle=True)
-    """
-
+if __name__ == '__main__':
+    from sklearn.model_selection import train_test_split
     from sklearn.datasets import make_classification
     import numpy as np
 
-    def classification_data():
-        X, y = make_classification(n_samples=n_data_points,
-                                   n_features=n_features,
-                                   n_informative=n_classes,
-                                   random_state=0,
-                                   n_classes=n_classes,
-                                   n_clusters_per_class=1,
+    X, Y = make_classification(n_samples=50000, n_features=10, n_informative=4, n_redundant=0, n_classes=10,
+                               n_clusters_per_class=1, class_sep=3)
+
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.3, random_state=42, shuffle=True)
+
+    print('Training dataset size', X_train.shape)
+    print('Testing dataset size', X_test.shape)
+
+    onn_network = ONNHBPClassifier(input_units=10,
+                                   output_units=10,
+                                   hidden_units=40,
+                                   n_hidden_layers=5,
+                                   # activation='Tanh',
+                                   train_split=None,
+                                   verbose=0
                                    )
-        X, y = X.astype(np.float32), y.astype(np.int64)
-        return X, y
 
-    X_train, y_train = classification_data()
+    partial_fit = onn_network.partial_fit(np.asarray([X_train[0, :]]), np.asarray([y_train[0]]))
 
-    # TODO: possibly fit does not reset model params
-    classifier.fit(X_train, y_train)
-    train_losses_after_fit = classifier.history[:, 'train_loss']
-    valid_acc_after_fit = classifier.history[-1, 'valid_acc']
+    print('Model', partial_fit)
 
-    epochs = 5
-    for i in range(epochs):
-        classifier.partial_fit(X_train, y_train)
+    print("Online Accuracy at the beginning {}".format(partial_fit.score(X_test, y_test)))
 
-    train_losses = classifier.history[:, 'train_loss']
-    assert train_losses[0] > train_losses[-1]
-    valid_acc = classifier.history[-1, 'valid_acc']
+    print('Training on more examples ...')
+    for i in range(1, 1000):
+        partial_fit = onn_network.partial_fit(np.asarray([X_train[i, :]]), np.asarray([y_train[i]]))
 
+    print("Online Accuracy after 1000 examples: {}".format(partial_fit.score(X_test, y_test)))
 
-if __name__ == '__main__':
-    from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.datasets import load_iris
-    import numpy as np
-
-    iris = load_iris()
-    X = iris['data']
-    y = iris['target']
-    names = iris['target_names']
-    feature_names = iris['feature_names']
-
-    # Scale data to have mean 0 and variance 1
-    # which is importance for convergence of the neural network
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    # Split the data set into training and testing
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y, test_size=0.2, random_state=2)
-
-    n_features = X_train.shape[1]
-    n_classes = np.unique(y_test).shape[0]
-    ffn_hidden_units = 50
-    n_hidden_layers = 3
-
-    model_skorch = ONNHBP_Classifier(input_units=n_features,
-                                     output_units=n_classes,
-                                     hidden_units=ffn_hidden_units,
-                                     n_hidden_layers=n_hidden_layers)
-
-    partial_fit = None
-
-    for i in range(0, 25):
-        partial_fit = model_skorch.partial_fit(X_train, y_train)
-
-    print(partial_fit.score(X_test, y_test))
-
-    predict = model_skorch.predict(X_test)
-
-    print(predict)
-    print(y_test)
