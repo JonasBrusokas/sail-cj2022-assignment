@@ -12,7 +12,9 @@ class _ONNHBPModel(nn.Module):
 
     Paper https://arxiv.org/abs/1711.03705
     Original code in Theano https://github.com/LIBOL/ODL
-    Pytorch implementation https://github.com/alison-carrera/onn
+    Based on Pytorch implementation https://github.com/alison-carrera/onn
+
+    Implemented by: Carlos Muniz Cuza and Jonas Brusokas
 
         Args:
             input_units: dimensionality of input
@@ -227,7 +229,9 @@ class ONNHBPClassifier(NeuralNetClassifier):
 
         Paper https://arxiv.org/abs/1711.03705
         Original code in Theano https://github.com/LIBOL/ODL
-        Pytorch implementation https://github.com/alison-carrera/onn
+        Based on Pytorch implementation https://github.com/alison-carrera/onn
+
+        Implemented by: Carlos Muniz Cuza and Jonas Brusokas
 
         Args:
             input_units: dimensionality of input
@@ -254,8 +258,6 @@ class ONNHBPClassifier(NeuralNetClassifier):
             max_epochs=1,
             **kwargs
         )
-
-        # self.train_split = None # Force disable splitting, might need to turn off later
 
     # OVERRIDES net.py:965
     # This enables training the model EXACTLY as specified in the paper
@@ -285,7 +287,7 @@ if __name__ == '__main__':
     from sklearn.datasets import make_classification
     import numpy as np
 
-    X, Y = make_classification(n_samples=50000, n_features=10, n_informative=4, n_redundant=0, n_classes=10,
+    X, Y = make_classification(n_samples=5000, n_features=10, n_informative=4, n_redundant=0, n_classes=10,
                                n_clusters_per_class=1, class_sep=3)
 
     X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.3, random_state=42, shuffle=True)
